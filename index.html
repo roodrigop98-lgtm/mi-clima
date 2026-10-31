@@ -14,7 +14,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%232f7fd6'/%3E%3Ccircle cx='19' cy='18' r='8' fill='%23F7B32B'/%3E%3Cg fill='%23fff'%3E%3Ccircle cx='20' cy='31' r='6'/%3E%3Ccircle cx='27' cy='26' r='8.5'/%3E%3Ccircle cx='34' cy='31' r='6'/%3E%3Crect x='20' y='31' width='14' height='6'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Outfit:wght@200;300;400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Outfit:wght@200;300;400;500&family=Roboto:wght@400&display=swap">
 <style>
 /* Layout: sky-scene hero with current conditions, then a board — chart + details on the left, 10-day list on the right (single column on phones) */
 :root{
@@ -75,6 +75,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .now-range,.now-feels{font-size:.92rem;opacity:.92}
 .now-range{margin-top:4px}
 .hero-meta{position:absolute;right:14px;bottom:10px;font-size:.74rem;opacity:.85;text-shadow:0 1px 6px rgba(0,0,0,.35)}
+.hero-attr{position:absolute;left:14px;bottom:9px;color:#fff;font:400 12px/1 Roboto,Arial,sans-serif;white-space:nowrap;text-shadow:0 1px 4px rgba(0,0,0,.4)}
+.gattr{font-family:Roboto,Arial,sans-serif;font-weight:400;white-space:nowrap}
 
 /* quick stats */
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
@@ -221,6 +223,7 @@ dialog::backdrop{background:rgba(8,14,22,.45)}
       <div class="now-feels num" id="nowFeels"></div>
     </div>
     <div class="hero-meta num" id="heroMeta"></div>
+    <div class="hero-attr" id="heroAttr" translate="no" hidden>Google Maps</div>
   </section>
 
   <div class="stats" id="stats"></div>
@@ -255,7 +258,7 @@ dialog::backdrop{background:rgba(8,14,22,.45)}
   </div>
 
   <footer>
-    <span>Datos del tiempo: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)</span>
+    <span id="srcLine">Datos del tiempo: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)</span>
     <span id="footStamp" class="num"></span>
   </footer>
 </div>
@@ -466,6 +469,142 @@ const aqURL = p => 'https://air-quality-api.open-meteo.com/v1/air-quality?' + ne
 const geoURL = q => 'https://geocoding-api.open-meteo.com/v1/search?' + new URLSearchParams({ name: q, count: '8', language: 'es', format: 'json' });
 const revURL = (lat, lon) => 'https://api.bigdatacloud.net/data/reverse-geocode-client?' + new URLSearchParams({ latitude: lat, longitude: lon, localityLanguage: 'es' });
 
+/* ---------- Google Weather API (primary source) ----------
+   Browser key, restricted in Google Cloud to this site's address and to the Weather API only. */
+const GKEY = 'AIzaSyCR5xVPbrTy8rkTOTi-P6hpi8Vf_4ZlyOE';
+const gURL = (path, p, extra = {}) => 'https://weather.googleapis.com/v1/' + path + '?' + new URLSearchParams({
+  key: GKEY, 'location.latitude': p.lat, 'location.longitude': p.lon, languageCode: 'es', unitsSystem: 'METRIC', ...extra
+});
+// Google condition type -> WMO-style code used by the icons and the sky scene
+const G2WMO = {
+  CLEAR: 0, MOSTLY_CLEAR: 1, PARTLY_CLOUDY: 2, MOSTLY_CLOUDY: 3, CLOUDY: 3, WINDY: 2, WIND_AND_RAIN: 63,
+  LIGHT_RAIN_SHOWERS: 80, CHANCE_OF_SHOWERS: 80, SCATTERED_SHOWERS: 80, RAIN_SHOWERS: 81, HEAVY_RAIN_SHOWERS: 82,
+  LIGHT_TO_MODERATE_RAIN: 61, MODERATE_TO_HEAVY_RAIN: 65, RAIN: 63, LIGHT_RAIN: 61, HEAVY_RAIN: 65, RAIN_PERIODICALLY_HEAVY: 65,
+  LIGHT_SNOW_SHOWERS: 85, CHANCE_OF_SNOW_SHOWERS: 85, SCATTERED_SNOW_SHOWERS: 85, SNOW_SHOWERS: 85, HEAVY_SNOW_SHOWERS: 86,
+  LIGHT_TO_MODERATE_SNOW: 71, MODERATE_TO_HEAVY_SNOW: 75, SNOW: 73, LIGHT_SNOW: 71, HEAVY_SNOW: 75, SNOWSTORM: 75,
+  SNOW_PERIODICALLY_HEAVY: 75, HEAVY_SNOW_STORM: 75, BLOWING_SNOW: 73, RAIN_AND_SNOW: 66, HAIL: 96, HAIL_SHOWERS: 96,
+  THUNDERSTORM: 95, THUNDERSHOWER: 95, LIGHT_THUNDERSTORM_RAIN: 95, SCATTERED_THUNDERSTORMS: 95, HEAVY_THUNDERSTORM: 99,
+  FOG: 45, LIGHT_FOG: 45, HAZE: 45
+};
+function gCode(t) {
+  if (t in G2WMO) return G2WMO[t];
+  t = String(t || '');
+  if (/THUNDER/.test(t)) return 95;
+  if (/SNOW/.test(t)) return 73;
+  if (/RAIN|SHOWER/.test(t)) return 63;
+  if (/FOG|HAZE|MIST/.test(t)) return 45;
+  if (/CLEAR/.test(t)) return 0;
+  return 3;
+}
+const pad2 = n => String(n).padStart(2, '0');
+const offsetSec = s => parseInt(String(s || '0').replace('s', ''), 10) || 0;
+const localStr = (isoUTC, off) => { const d = new Date(Date.parse(isoUTC) + off * 1000); return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`; };
+const num = (v, d = 0) => (v == null || isNaN(v)) ? d : +v;
+
+function appendGoogleHours(data, j) {
+  const H = data.hourly;
+  for (const h of (j.forecastHours || [])) {
+    const t = h.displayDateTime;
+    const s = `${t.year}-${pad2(t.month)}-${pad2(t.day)}T${pad2(t.hours || 0)}:00`;
+    if (H.time.length && s <= H.time[H.time.length - 1]) continue;
+    H.time.push(s);
+    H.temperature_2m.push(num(h.temperature?.degrees));
+    H.apparent_temperature.push(num(h.feelsLikeTemperature?.degrees));
+    H.precipitation_probability.push(num(h.precipitation?.probability?.percent));
+    H.precipitation.push(num(h.precipitation?.qpf?.quantity));
+    H.weather_code.push(gCode(h.weatherCondition?.type));
+    H.desc.push(h.weatherCondition?.description?.text || '');
+    H.wind_speed_10m.push(num(h.wind?.speed?.value));
+    H.wind_direction_10m.push(num(h.wind?.direction?.degrees));
+    H.wind_gusts_10m.push(num(h.wind?.gust?.value));
+    H.is_day.push(h.isDaytime ? 1 : 0);
+    H.uv_index.push(num(h.uvIndex));
+    H.visibility.push(num(h.visibility?.distance) * 1000);
+    H.dew_point_2m.push(num(h.dewPoint?.degrees));
+    H.relative_humidity_2m.push(num(h.relativeHumidity));
+    H.pressure_msl.push(num(h.airPressure?.meanSeaLevelMillibars));
+    H.thunder.push(num(h.thunderstormProbability));
+  }
+  data.hourNext = j.nextPageToken || null;
+}
+
+function normalizeGoogle(cur, hrs, days, p) {
+  const first = (hrs.forecastHours || [])[0];
+  const off = first ? offsetSec(first.displayDateTime?.utcOffset) : 0;
+  const data = {
+    src: 'google', place: p, hourNext: null,
+    hourly: { time: [], temperature_2m: [], apparent_temperature: [], precipitation_probability: [], precipitation: [], weather_code: [], desc: [], wind_speed_10m: [], wind_direction_10m: [], wind_gusts_10m: [], is_day: [], uv_index: [], visibility: [], dew_point_2m: [], relative_humidity_2m: [], pressure_msl: [], thunder: [] },
+    daily: { time: [], weather_code: [], desc: [], temperature_2m_max: [], temperature_2m_min: [], sunrise: [], sunset: [], uv_index_max: [], precipitation_probability_max: [], precipitation_sum: [], wind_speed_10m_max: [], wind_direction_10m_dominant: [], daylight_duration: [] }
+  };
+  appendGoogleHours(data, hrs);
+  data.current = {
+    time: localStr(cur.currentTime, off),
+    temperature_2m: num(cur.temperature?.degrees),
+    relative_humidity_2m: num(cur.relativeHumidity),
+    apparent_temperature: num(cur.feelsLikeTemperature?.degrees),
+    is_day: cur.isDaytime ? 1 : 0,
+    precipitation: num(cur.precipitation?.qpf?.quantity),
+    precip_prob: num(cur.precipitation?.probability?.percent),
+    weather_code: gCode(cur.weatherCondition?.type),
+    desc: cur.weatherCondition?.description?.text || '',
+    cloud_cover: num(cur.cloudCover),
+    pressure_msl: num(cur.airPressure?.meanSeaLevelMillibars),
+    wind_speed_10m: num(cur.wind?.speed?.value),
+    wind_direction_10m: num(cur.wind?.direction?.degrees),
+    wind_gusts_10m: num(cur.wind?.gust?.value),
+    uv_index: num(cur.uvIndex),
+    visibility_km: num(cur.visibility?.distance, NaN),
+    dew_point: num(cur.dewPoint?.degrees),
+    thunder: num(cur.thunderstormProbability)
+  };
+  const D = data.daily;
+  for (const d of (days.forecastDays || [])) {
+    const dd = d.displayDate, day = d.daytimeForecast || {}, night = d.nighttimeForecast || {};
+    D.time.push(`${dd.year}-${pad2(dd.month)}-${pad2(dd.day)}`);
+    D.weather_code.push(gCode(day.weatherCondition?.type));
+    D.desc.push(day.weatherCondition?.description?.text || '');
+    D.temperature_2m_max.push(num(d.maxTemperature?.degrees));
+    D.temperature_2m_min.push(num(d.minTemperature?.degrees));
+    const sr = d.sunEvents?.sunriseTime, ss = d.sunEvents?.sunsetTime;
+    D.sunrise.push(sr ? localStr(sr, off) : D.time[D.time.length - 1] + 'T06:00');
+    D.sunset.push(ss ? localStr(ss, off) : D.time[D.time.length - 1] + 'T19:00');
+    D.daylight_duration.push(sr && ss ? (Date.parse(ss) - Date.parse(sr)) / 1000 : 43200);
+    D.uv_index_max.push(num(day.uvIndex));
+    D.precipitation_probability_max.push(Math.max(num(day.precipitation?.probability?.percent), num(night.precipitation?.probability?.percent)));
+    D.precipitation_sum.push(num(day.precipitation?.qpf?.quantity) + num(night.precipitation?.qpf?.quantity));
+    D.wind_speed_10m_max.push(Math.max(num(day.wind?.speed?.value), num(night.wind?.speed?.value)));
+    D.wind_direction_10m_dominant.push(num(day.wind?.direction?.degrees));
+  }
+  if (!D.time.length || !data.hourly.time.length) throw new Error('Respuesta incompleta de Google');
+  return data;
+}
+
+async function loadGoogle(p) {
+  const [cur, hrs, days] = await Promise.all([
+    getJSON(gURL('currentConditions:lookup', p)),
+    getJSON(gURL('forecast/hours:lookup', p, { hours: '240', pageSize: '24' })),
+    getJSON(gURL('forecast/days:lookup', p, { days: '10', pageSize: '10' }))
+  ]);
+  return normalizeGoogle(cur, hrs, days, p);
+}
+async function loadOpenMeteo(p) {
+  const data = await getJSON(forecastURL(p));
+  if (!data || !data.current || !data.hourly || !data.daily) throw new Error('Respuesta incompleta');
+  data.src = 'openmeteo'; data.place = p;
+  return data;
+}
+// Google returns 24 hours per page: fetch further pages only when a later day is opened.
+async function ensureHours(day) {
+  const d = state.data;
+  if (!d || d.src !== 'google' || day === 0) return;
+  const need = d.daily.time[day] + 'T23:00';
+  let guard = 0;
+  while (d.hourNext && d.hourly.time[d.hourly.time.length - 1] < need && guard++ < 10) {
+    const j = await getJSON(gURL('forecast/hours:lookup', d.place, { hours: '240', pageSize: '24', pageToken: d.hourNext }));
+    appendGoogleHours(d, j);
+  }
+}
+
 /* ---------- data access ---------- */
 const currentPlace = () => state.places.find(p => p.id === state.currentId) || state.places[0];
 function curIdx() {
@@ -492,7 +631,7 @@ function renderPlace() {
 function renderHero() {
   const d = state.data, c = d.current, D = d.daily;
   $('#nowTemp').innerHTML = `${Math.round(toT(c.temperature_2m))}<span class="u">°${state.unit}</span>`;
-  $('#nowCond').textContent = nightDesc(c.weather_code, c.is_day);
+  $('#nowCond').textContent = c.desc || nightDesc(c.weather_code, c.is_day);
   $('#nowRange').textContent = `Máx. ${tDeg(D.temperature_2m_max[0])} · Mín. ${tDeg(D.temperature_2m_min[0])}`;
   $('#nowFeels').textContent = `Sensación térmica ${tDeg(c.apparent_temperature)}`;
   $('#heroMeta').textContent = `Hora local ${hhmm(c.time)}`;
@@ -504,7 +643,7 @@ const SVG_WIND = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" st
 
 function renderStats() {
   const d = state.data, c = d.current, H = d.hourly, i = curIdx();
-  const pp = H.precipitation_probability[i] ?? 0;
+  const pp = c.precip_prob ?? H.precipitation_probability[i] ?? 0;
   $('#stats').innerHTML = `
     <div class="stat">${SVG_DROP}<div><small>Prob. de lluvia</small><b class="num">${pp} %</b></div></div>
     <div class="stat">${SVG_HUM}<div><small>Humedad</small><b class="num">${Math.round(c.relative_humidity_2m)} %</b></div></div>
@@ -525,6 +664,13 @@ function smoothPath(p) {
 function renderChart() {
   const d = state.data, H = d.hourly, D = d.daily, day = state.day;
   const idx = hoursForDay(day);
+  $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
+  $('#chartTitle').textContent = day === 0 ? 'Próximas 24 horas' : longDay(D.time[day]);
+  if (!idx.length) {
+    $('#chart').style.width = 'auto';
+    $('#chart').innerHTML = '<p class="hint" style="padding:40px 0">Cargando el pronóstico por hora…</p>';
+    return;
+  }
   const CW = 56, SH = 124, n = idx.length, W = n * CW;
   const cx = k => k * CW + CW / 2;
   let svg = '';
@@ -564,7 +710,7 @@ function renderChart() {
   let cols = '';
   idx.forEach((i, k) => {
     const isNow = day === 0 && k === 0;
-    cols += `<div class="col${isNow ? ' now' : ''}" style="width:${CW}px">${icon(H.weather_code[i], H.is_day[i])}<span class="num">${isNow ? 'Ahora' : hhmm(H.time[i])}</span></div>`;
+    cols += `<div class="col${isNow ? ' now' : ''}" style="width:${CW}px">${icon(H.weather_code[i], H.is_day[i], H.desc && H.desc[i])}<span class="num">${isNow ? 'Ahora' : hhmm(H.time[i])}</span></div>`;
   });
   $('#chart').innerHTML = `<svg width="${W}" height="${SH}" viewBox="0 0 ${W} ${SH}" role="img" aria-label="Gráfico por hora">${svg}</svg><div class="cols">${cols}</div>`;
   $('#chart').style.width = W + 'px';
@@ -572,12 +718,10 @@ function renderChart() {
 
   // header
   const unitTxt = state.tab === 'wind' ? ` · Flechas: hacia dónde sopla` : '';
-  $('#chartTitle').textContent = day === 0 ? 'Próximas 24 horas' : longDay(D.time[day]);
   const pp = D.precipitation_probability_max[day] ?? 0, ps = D.precipitation_sum[day] ?? 0;
   $('#chartSummary').textContent =
-    `${desc(D.weather_code[day])} · Máx. ${tDeg(D.temperature_2m_max[day])} Mín. ${tDeg(D.temperature_2m_min[day])} · Lluvia ${pp} %` +
+    `${(D.desc && D.desc[day]) || desc(D.weather_code[day])} · Máx. ${tDeg(D.temperature_2m_max[day])} Mín. ${tDeg(D.temperature_2m_min[day])} · Lluvia ${pp} %` +
     (ps >= 0.1 ? ` (${nf1.format(ps)} mm)` : '') + ` · Viento hasta ${windV(D.wind_speed_10m_max[day])} ${windU()}` + unitTxt;
-  $$('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)));
 }
 
 function renderDaily() {
@@ -587,9 +731,10 @@ function renderDaily() {
   $('#daily').innerHTML = D.time.map((day, i) => {
     const mn = D.temperature_2m_min[i], mx = D.temperature_2m_max[i], pp = D.precipitation_probability_max[i] ?? 0;
     const nowDot = i === 0 ? `<i class="d-now" style="left:${pos(c.temperature_2m).toFixed(1)}%" title="Ahora"></i>` : '';
-    return `<li><button class="day" data-day="${i}" aria-pressed="${i === state.day}" aria-label="${esc(i === 0 ? 'Hoy' : longDay(day))}: ${esc(desc(D.weather_code[i]))}, máxima ${tDeg(mx)}, mínima ${tDeg(mn)}, lluvia ${pp}%">
+    const dsc = (D.desc && D.desc[i]) || desc(D.weather_code[i]);
+    return `<li><button class="day" data-day="${i}" aria-pressed="${i === state.day}" aria-label="${esc(i === 0 ? 'Hoy' : longDay(day))}: ${esc(dsc)}, máxima ${tDeg(mx)}, mínima ${tDeg(mn)}, lluvia ${pp}%">
       <span class="d-name">${i === 0 ? 'Hoy' : wdShort(day)}</span>
-      <span class="d-ic">${icon(D.weather_code[i], 1)}</span>
+      <span class="d-ic">${icon(D.weather_code[i], 1, dsc)}</span>
       <span class="d-pp num">${pp >= 10 ? pp + '%' : ''}</span>
       <span class="d-lo num">${tDeg(mn)}</span>
       <span class="d-bar"><span class="d-fill" style="left:${pos(mn).toFixed(1)}%;right:${(100 - pos(mx)).toFixed(1)}%;background:linear-gradient(90deg,${tempColor(mn)},${tempColor(mx)})"></span>${nowDot}</span>
@@ -628,7 +773,7 @@ function renderDetails() {
   const out = [];
 
   // UV
-  const uv = H.uv_index[i] ?? 0, [uvLbl, uvTip] = uvInfo(uv);
+  const uv = c.uv_index ?? H.uv_index[i] ?? 0, [uvLbl, uvTip] = uvInfo(uv);
   out.push(tile('Índice UV', `<div class="tile-val num">${nf0.format(uv)}</div><div class="tile-lbl">${uvLbl}</div>
     <div class="scale uv-scale"><i style="left:${clamp(uv / 11 * 100, 0, 100).toFixed(1)}%"></i></div>
     <p class="tile-sub">${uvTip} Máx. hoy: ${nf0.format(D.uv_index_max[0] ?? 0)}.</p>`));
@@ -661,7 +806,7 @@ function renderDetails() {
     <p class="tile-sub">Ráfagas de ${windV(c.wind_gusts_10m)} ${windU()}.</p>`));
 
   // Humidity
-  const rh = Math.round(c.relative_humidity_2m), dp = H.dew_point_2m[i];
+  const rh = Math.round(c.relative_humidity_2m), dp = c.dew_point ?? H.dew_point_2m[i];
   out.push(tile('Humedad', `<div class="tile-val num">${rh}<small>%</small></div>
     <div class="scale hum-scale"><i style="left:${rh}%"></i></div>
     <p class="tile-sub">Punto de rocío: ${tDeg(dp)}.</p>`));
@@ -670,7 +815,7 @@ function renderDetails() {
   let next24 = 0; for (let k = i; k < Math.min(i + 24, H.time.length); k++) next24 += H.precipitation[k] || 0;
   out.push(tile('Precipitación', `<div class="tile-val num">${nf1.format(D.precipitation_sum[0] ?? 0)}<small>mm hoy</small></div>
     <div class="tile-lbl">Prob. máx. ${D.precipitation_probability_max[0] ?? 0} %</div>
-    <p class="tile-sub">Próximas 24 h: ${nf1.format(next24)} mm.</p>`));
+    <p class="tile-sub">Próximas 24 h: ${nf1.format(next24)} mm.${c.thunder != null ? ` Prob. de tormenta: ${c.thunder} %.` : ''}</p>`));
 
   // Pressure
   const pr = c.pressure_msl, j = i >= 3 ? i - 3 : Math.min(i + 3, H.time.length - 1);
@@ -686,7 +831,7 @@ function renderDetails() {
     </svg>`));
 
   // Visibility
-  const vk = (H.visibility[i] ?? 0) / 1000;
+  const vk = isFinite(c.visibility_km) ? c.visibility_km : (H.visibility[i] ?? 0) / 1000;
   out.push(tile('Visibilidad', `<div class="tile-val num">${vk >= 10 ? nf0.format(vk) : nf1.format(vk)}<small>km</small></div>
     <div class="tile-lbl">${visInfo(vk)}</div>
     <p class="tile-sub">Nubosidad: ${Math.round(c.cloud_cover ?? 0)} %.</p>`));
@@ -709,6 +854,11 @@ function renderAll() {
   renderPlace(); renderHero(); renderStats(); renderChart(); renderDaily(); renderDetails(); updateScene();
   const t = new Date(state.loadedAt);
   $('#footStamp').textContent = 'Actualizado a las ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+  const g = state.data.src === 'google';
+  $('#heroAttr').hidden = !g;
+  $('#srcLine').innerHTML = g
+    ? 'Fuente: Includes weather data from <span class="gattr" translate="no">Google Maps</span> · Calidad del aire: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a>'
+    : 'Datos del tiempo: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)';
 }
 
 /* ---------- loading ---------- */
@@ -725,14 +875,16 @@ async function load({ keepDay = false } = {}) {
   const p = currentPlace(), token = ++state.token;
   renderPlace(); setLoading(true);
   try {
-    const data = await getJSON(forecastURL(p));
+    let data;
+    try { data = await loadGoogle(p); }
+    catch (e) { if (token !== state.token) return; data = await loadOpenMeteo(p); }
     if (token !== state.token) return;
-    if (!data || !data.current || !data.hourly || !data.daily) throw new Error('Respuesta incompleta');
     state.data = data; state.loadedAt = Date.now();
     if (!keepDay) state.day = 0;
     state.aq = null;
     $('#errorBox').hidden = true;
     renderAll();
+    if (state.day > 0) ensureHours(state.day).then(() => { if (state.data === data) renderChart(); }).catch(() => {});
     if (navigator.onLine === false) showError('Sin conexión: estás viendo el último pronóstico guardado (hora local ' + hhmm(data.current.time) + ').');
     getJSON(aqURL(p)).then(j => { if (token === state.token) { state.aq = j; renderDetails(); } }).catch(() => {});
   } catch (e) {
@@ -772,7 +924,24 @@ function renderSaved(temps) {
     </li>`;
   }).join('');
 }
+const savedMemo = new Map(); // place id -> {t, v}: avoids repeat Google calls within 10 minutes
 async function refreshSavedTemps() {
+  try {
+    const now = Date.now();
+    const temps = await Promise.all(state.places.map(async p => {
+      if (p.id === state.currentId && state.data && state.data.src === 'google' && state.data.place === p) {
+        const c = state.data.current; return { temp: c.temperature_2m, code: c.weather_code, isDay: c.is_day };
+      }
+      const m = savedMemo.get(p.id);
+      if (m && now - m.t < 10 * 60 * 1000) return m.v;
+      const j = await getJSON(gURL('currentConditions:lookup', p));
+      const v = { temp: num(j.temperature?.degrees), code: gCode(j.weatherCondition?.type), isDay: j.isDaytime ? 1 : 0 };
+      savedMemo.set(p.id, { t: now, v });
+      return v;
+    }));
+    renderSaved(temps);
+    return;
+  } catch (e) { /* fall back to Open-Meteo below */ }
   try {
     const q = new URLSearchParams({
       latitude: state.places.map(p => p.lat).join(','), longitude: state.places.map(p => p.lon).join(','),
@@ -1040,6 +1209,9 @@ $('#daily').addEventListener('click', e => {
   state.day = +b.dataset.day;
   $$('.day').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   renderChart();
+  const d = state.data, day = state.day;
+  ensureHours(day).then(() => { if (state.data === d && state.day === day) renderChart(); })
+    .catch(() => { if (state.data === d && state.day === day && !hoursForDay(day).length) $('#chart').innerHTML = '<p class="hint" style="padding:40px 0">No se pudo cargar el detalle por hora de ese día.</p>'; });
   const card = $('#chartCard'), r = card.getBoundingClientRect();
   if (r.top < 0 || r.bottom > window.innerHeight) card.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
 });
