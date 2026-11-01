@@ -39,7 +39,8 @@
   --shadow:none; color-scheme:dark;
 }
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+button,a,label,input{-webkit-tap-highlight-color:transparent}
 :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 var(--font-body);-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit}
@@ -100,8 +101,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 /* chart */
 .chart-head{display:flex;flex-direction:column;gap:2px}
 .chart-head p{margin:0;color:var(--muted);font-size:.85rem;text-wrap:balance}
-.tabs{display:flex;gap:6px;margin:12px 0 4px;flex-wrap:wrap}
-.tab{border:1px solid var(--line);background:transparent;border-radius:999px;padding:6px 14px;font-size:.86rem;font-weight:500;color:var(--muted)}
+.tabs{display:flex;gap:6px;margin:12px 0 4px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:1 0 auto;border:1px solid var(--line);background:transparent;border-radius:999px;padding:6px 8px;font-size:clamp(.74rem,3.4vw,.86rem);font-weight:500;color:var(--muted);white-space:nowrap}
+@media (min-width:600px){.tab{flex:0 0 auto;padding:6px 14px}}
 .tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .chart-scroll{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;margin-inline:-16px;padding-inline:16px;padding-bottom:6px}
 .chart{position:relative}
@@ -111,6 +114,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .col{flex:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.78rem;color:var(--muted)}
 .col.now{color:var(--fg);font-weight:600}
 .col .ic{width:28px;height:28px}
+.col .pp{height:1.15em;font-size:.74rem;font-weight:600;color:var(--rain);font-variant-numeric:tabular-nums}
 
 /* daily */
 .daily-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
@@ -710,7 +714,9 @@ function renderChart() {
   let cols = '';
   idx.forEach((i, k) => {
     const isNow = day === 0 && k === 0;
-    cols += `<div class="col${isNow ? ' now' : ''}" style="width:${CW}px">${icon(H.weather_code[i], H.is_day[i], H.desc && H.desc[i])}<span class="num">${isNow ? 'Ahora' : hhmm(H.time[i])}</span></div>`;
+    const ppv = H.precipitation_probability[i] ?? 0;
+    const ppTxt = state.tab !== 'rain' ? `<span class="pp">${ppv >= 10 ? ppv + ' %' : ''}</span>` : '';
+    cols += `<div class="col${isNow ? ' now' : ''}" style="width:${CW}px">${ppTxt}${icon(H.weather_code[i], H.is_day[i], H.desc && H.desc[i])}<span class="num">${isNow ? 'Ahora' : hhmm(H.time[i])}</span></div>`;
   });
   $('#chart').innerHTML = `<svg width="${W}" height="${SH}" viewBox="0 0 ${W} ${SH}" role="img" aria-label="Gráfico por hora">${svg}</svg><div class="cols">${cols}</div>`;
   $('#chart').style.width = W + 'px';
